@@ -24,7 +24,7 @@ class MainActivity : AppCompatActivity() {
 
             if (username.isNotBlank() && password.isNotBlank()) {
                 val intent = Intent(this, WelcomeActivity::class.java).apply {
-                    putExtra("username", username) 
+                    putExtra("username", username)
                 }
                 startActivity(intent)
                 finish()

@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+
+    environment {
+        ANDROID_HOME = "${env.HOME}/Android/Sdk"
+        GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build APK') {
+            steps {
+                sh './gradlew assembleDebug'
+            }
+        }
+
+        stage('Run Instrumented UI Tests') {
+            steps {
+                sh './gradlew connectedDebugAndroidTest'
+            }
+        }
+
+        stage('Archive Test Results') {
+            steps {
+                junit '**/build/outputs/androidTest-results/connected/*.xml'
+                // Optionale UI Reports z. B. von spoon oder mochawesome o. ä. könnten hier auch gepublished werden
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Build und UI-Tests erfolgreich"
+        }
+        failure {
+            echo "❌ Build oder Tests fehlgeschlagen"
+        }
+        always {
+            archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
+        }
+    }
+}
