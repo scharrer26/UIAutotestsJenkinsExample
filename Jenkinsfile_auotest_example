@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        ANDROID_HOME = "${env.HOME}/Android/Sdk"
-        GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
+            ANDROID_HOME = "/Users/stefan/Library/Android/sdk"
+            GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
     }
 
     stages {
