@@ -24,7 +24,11 @@ pipeline {
             steps {
                 sh '''
                     echo "🚀 Starting emulator..."
-                    nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off -no-boot-anim -no-auth > emulator.log 2>&1 &
+
+                    runuser -u jenkins -- nohup $ANDROID_HOME/emulator/emulator \
+                        -avd jenkins_emulator \
+                        -no-window -no-audio -no-snapshot -wipe-data \
+                        -gpu off -accel off -no-boot-anim > emulator.log 2>&1 &
 
                     echo "🔍 Looking for started emulator ID..."
                     emulator_id=""
