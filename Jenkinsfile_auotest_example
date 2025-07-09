@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         ANDROID_HOME = "/opt/android-sdk"
-        PATH = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+        PATH = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
         GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
     }
 
@@ -17,6 +17,26 @@ pipeline {
         stage('Setup local.properties') {
             steps {
                 sh 'echo "sdk.dir=$ANDROID_HOME" > local.properties'
+            }
+        }
+
+        stage('Start Emulator') {
+            steps {
+                sh '''
+                    nohup emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off &
+                    
+                    echo "⏳ Waiting for emulator to connect via ADB..."
+                    adb wait-for-device
+                    
+                    boot_completed=""
+                    while [ "$boot_completed" != "1" ]; do
+                        sleep 5
+                        boot_completed=$(adb shell getprop sys.boot_completed | tr -d '\\r')
+                        echo "⏳ Emulator booting..."
+                    done
+                    
+                    echo "✅ Emulator is fully booted and ready!"
+                '''
             }
         }
 
@@ -35,7 +55,6 @@ pipeline {
         stage('Archive Test Results') {
             steps {
                 junit '**/build/outputs/androidTest-results/connected/*.xml'
-                // Hier könnten optional HTML-Reports o. Ä. archiviert werden
             }
         }
     }
