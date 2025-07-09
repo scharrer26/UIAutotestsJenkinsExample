@@ -25,6 +25,9 @@ pipeline {
                 sh '''
                     echo "🚀 Starting emulator with xvfb..."
 
+                    # Set correct permissions to avoid auth issues
+                    chown -R jenkins:jenkins $HOME/.android || true
+
                     nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
                         $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
                         -no-audio -no-snapshot -wipe-data \
@@ -90,7 +93,7 @@ pipeline {
                 if [ -f emulator_id.txt ]; then
                     emulator_id=$(cat emulator_id.txt)
                     echo "🛑 Stopping emulator $emulator_id"
-                    adb -s "$emulator_id" emu kill || true
+                    adb -s "$emulator_id" emu kill || echo "⚠️ Failed to stop emulator (auth issue?)"
                 fi
             '''
         }
