@@ -55,6 +55,12 @@ pipeline {
                     done
 
                     echo "✅ Emulator $emulator_id is fully booted and ready!"
+
+                    echo "🔓 Unlocking screen (sending keyevent 82)..."
+                    adb -s "$emulator_id" shell input keyevent 82
+
+                    echo "⏳ Waiting a few extra seconds to stabilize the UI..."
+                    sleep 5
                 '''
             }
         }
