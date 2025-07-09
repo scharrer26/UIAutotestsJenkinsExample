@@ -78,6 +78,26 @@ pipeline {
                     echo "⚙️ Setting ANDROID_SERIAL=$emulator_id"
                     export ANDROID_SERIAL=$emulator_id
 
+                    echo "🔍 Verifying emulator window has focus..."
+                    max_tries=10
+                    i=0
+                    focused="false"
+                    while [ "$focused" != "true" ] && [ $i -lt $max_tries ]; do
+                        sleep 2
+                        if adb -s "$emulator_id" shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'Activity'; then
+                            focused="true"
+                        else
+                            echo "⏳ Waiting for focus... (try $((i+1)))"
+                        fi
+                        i=$((i + 1))
+                    done
+
+                    if [ "$focused" != "true" ]; then
+                        echo "⚠️ Warning: Emulator may not have focus. Espresso tests might fail."
+                    else
+                        echo "✅ Emulator window is focused."
+                    fi
+
                     echo "🧪 Running Espresso tests..."
                     ./gradlew connectedDebugAndroidTest
                 '''
