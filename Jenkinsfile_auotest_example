@@ -5,14 +5,14 @@ pipeline {
     ANDROID_HOME       = "/opt/android-sdk"
     PATH               = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
-    // Isolate build-specific directories to support parallel execution
+    // Build-scoped isolation
     BUILD_ROOT         = "/var/jenkins_home/builds/${BUILD_ID}"
     GRADLE_USER_HOME   = "${BUILD_ROOT}/.gradle"
     HOME               = "${BUILD_ROOT}/home"
     ANDROID_AVD_HOME   = "${BUILD_ROOT}/.android/avd"
     ADB_VENDOR_KEYS    = "${BUILD_ROOT}/.android/adbkey"
 
-    // Dynamically assigned emulator port to avoid conflicts
+    // Dynamic emulator config
     EMULATOR_PORT      = "${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_SERIAL    = "emulator-${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_NAME      = "jenkins_emulator"
@@ -31,6 +31,28 @@ pipeline {
         sh '''
           mkdir -p "$ANDROID_AVD_HOME" "$GRADLE_USER_HOME" "$HOME/.android"
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+        '''
+      }
+    }
+
+    stage('Create Emulator') {
+      steps {
+        sh '''
+          echo "📦 Creating AVD if it does not exist..."
+
+          avd_path="$ANDROID_AVD_HOME/${EMULATOR_NAME}.avd"
+          avd_ini="$ANDROID_AVD_HOME/${EMULATOR_NAME}.ini"
+
+          if [ ! -d "$avd_path" ]; then
+            echo "no" | avdmanager create avd \
+              --name "$EMULATOR_NAME" \
+              --package "system-images;android-33;google_apis;x86_64" \
+              --device "pixel_4" \
+              --force
+            echo "✅ AVD created"
+          else
+            echo "✅ AVD already exists"
+          fi
         '''
       }
     }
