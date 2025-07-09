@@ -27,9 +27,10 @@ pipeline {
                     echo "🚀 Starting emulator with xvfb..."
 
                     mkdir -p $HOME/.android
+                    rm -f $HOME/.android/adbkey*
                     touch $HOME/.android/adbkey
                     touch $HOME/.android/adbkey.pub
-                    chown -R jenkins:jenkins $HOME/.android || true
+                    chown -R $(id -u):$(id -g) $HOME/.android
 
                     nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
                         $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
