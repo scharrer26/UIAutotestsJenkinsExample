@@ -49,6 +49,7 @@ pipeline {
 
                     if [ -z "$emulator_id" ]; then
                         echo "❌ Emulator did not start in time"
+                        cat emulator.log || true
                         exit 1
                     fi
 
@@ -67,6 +68,7 @@ pipeline {
 
                     if [ "$boot_completed" != "1" ]; then
                         echo "❌ Emulator did not finish booting in time"
+                        cat emulator.log || true
                         exit 1
                     fi
 
@@ -79,16 +81,22 @@ pipeline {
 
                     echo "🔍 Waiting for window focus before unlock..."
                     focus_ready="false"
-                    i=0
-                    while [ "$focus_ready" != "true" ] && [ $i -lt 10 ]; do
-                        sleep 2
+                    tries=0
+                    while [ "$focus_ready" != "true" ] && [ $tries -lt 15 ]; do
+                        sleep 4
                         if adb -s "$emulator_id" shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'Activity'; then
                             focus_ready="true"
                         else
-                            echo "⏳ Waiting for pre-unlock focus... (try $((i+1)))"
+                            echo "⏳ Waiting for pre-unlock focus... (try $((tries+1)))"
                         fi
-                        i=$((i + 1))
+                        tries=$((tries + 1))
                     done
+
+                    if [ "$focus_ready" != "true" ]; then
+                        echo "❌ Emulator never gained focus before unlock"
+                        cat emulator.log || true
+                        exit 1
+                    fi
 
                     echo "🔓 Unlocking screen..."
                     adb -s "$emulator_id" shell input keyevent 82
@@ -113,22 +121,31 @@ pipeline {
 
                     echo "🔍 Verifying emulator window has focus after unlock..."
                     focused="false"
-                    i=0
-                    while [ "$focused" != "true" ] && [ $i -lt 15 ]; do
-                        sleep 2
+                    tries=0
+                    while [ "$focused" != "true" ] && [ $tries -lt 20 ]; do
+                        sleep 4
                         if adb -s "$emulator_id" shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'Activity'; then
                             focused="true"
                         else
-                            echo "⏳ Waiting for focus... (try $((i+1)))"
+                            echo "⏳ Waiting for post-unlock focus... (try $((tries+1)))"
                         fi
-                        i=$((i + 1))
+                        tries=$((tries + 1))
                     done
 
                     if [ "$focused" != "true" ]; then
-                        echo "⚠️ Warning: Emulator may not have focus. Tests might fail."
-                    else
-                        echo "✅ Emulator window is focused."
+                        echo "❌ Emulator never got focus after unlock"
+                        cat emulator.log || true
+                        exit 1
                     fi
+
+                    echo "✅ Emulator window is focused."
+
+                    echo "🎯 Simulating user activity to ensure focus..."
+                    adb -s "$emulator_id" shell input keyevent 3      # HOME
+                    adb -s "$emulator_id" shell input keyevent 187    # APP_SWITCH
+                    adb -s "$emulator_id" shell input keyevent 61     # TAB
+                    adb -s "$emulator_id" shell input keyevent 66     # ENTER
+                    sleep 5
 
                     echo "🧪 Running Espresso tests..."
                     ./gradlew connectedDebugAndroidTest
@@ -152,6 +169,7 @@ pipeline {
         }
         always {
             archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
+            archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
             sh '''
                 if [ -f emulator_id.txt ]; then
                     emulator_id=$(cat emulator_id.txt)
