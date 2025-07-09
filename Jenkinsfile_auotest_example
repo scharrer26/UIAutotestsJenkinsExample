@@ -5,14 +5,14 @@ pipeline {
     ANDROID_HOME       = "/opt/android-sdk"
     PATH               = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
-    // Build-scoped isolation
+    // Isolate build artifacts per build
     BUILD_ROOT         = "/var/jenkins_home/builds/${BUILD_ID}"
     GRADLE_USER_HOME   = "${BUILD_ROOT}/.gradle"
     HOME               = "${BUILD_ROOT}/home"
     ANDROID_AVD_HOME   = "${BUILD_ROOT}/.android/avd"
     ADB_VENDOR_KEYS    = "${BUILD_ROOT}/.android/adbkey"
 
-    // Dynamic emulator config
+    // Dynamically allocate emulator ports for parallelism
     EMULATOR_PORT      = "${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_SERIAL    = "emulator-${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_NAME      = "jenkins_emulator"
@@ -46,7 +46,7 @@ pipeline {
           if [ ! -d "$avd_path" ]; then
             echo "no" | avdmanager create avd \
               --name "$EMULATOR_NAME" \
-              --package "system-images;android-34;google_apis;x86_64"
+              --package "system-images;android-34;google_apis;x86_64" \
               --device "pixel_4" \
               --force
             echo "✅ AVD created"
