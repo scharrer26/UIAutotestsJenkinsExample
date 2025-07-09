@@ -30,10 +30,10 @@ pipeline {
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # Start emulator in headless mode using Xvfb
+          # Start emulator in headless mode using Xvfb with GPU rendering via SwiftShader
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu off -accel off -no-boot-anim -no-window \
+            -no-audio -no-snapshot -wipe-data -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
             > emulator.log 2>&1 &
 
           # Wait for emulator to appear in `adb devices`
