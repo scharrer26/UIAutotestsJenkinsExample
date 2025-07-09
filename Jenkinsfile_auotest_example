@@ -37,7 +37,6 @@ pipeline {
                     done
 
                     echo "ℹ️ Using emulator: $emulator_id"
-
                     echo "$emulator_id" > emulator_id.txt
 
                     echo "⏳ Waiting for boot to complete..."
@@ -63,7 +62,9 @@ pipeline {
             steps {
                 sh '''
                     emulator_id=$(cat emulator_id.txt)
-                    ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.deviceId=$emulator_id
+                    echo "⚙️ Setting ANDROID_SERIAL=$emulator_id"
+                    export ANDROID_SERIAL=$emulator_id
+                    ./gradlew connectedDebugAndroidTest
                 '''
             }
         }
