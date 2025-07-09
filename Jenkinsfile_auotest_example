@@ -40,4 +40,59 @@ pipeline {
                     echo "ℹ️ Using emulator: $emulator_id"
                     echo "$emulator_id" > emulator_id.txt
 
-                    echo "⏳ Waiting
+                    echo "⏳ Waiting for boot to complete..."
+                    boot_completed=""
+                    while [ "$boot_completed" != "1" ]; do
+                        sleep 5
+                        boot_completed=$(adb -s "$emulator_id" shell getprop sys.boot_completed | tr -d '\\r')
+                        echo "⏳ Still booting..."
+                    done
+
+                    echo "✅ Emulator $emulator_id is fully booted and ready!"
+                '''
+            }
+        }
+
+        stage('Build APK') {
+            steps {
+                sh './gradlew assembleDebug'
+            }
+        }
+
+        stage('Run Instrumented UI Tests') {
+            steps {
+                sh '''
+                    emulator_id=$(cat emulator_id.txt)
+                    echo "⚙️ Setting ANDROID_SERIAL=$emulator_id"
+                    export ANDROID_SERIAL=$emulator_id
+                    ./gradlew connectedDebugAndroidTest
+                '''
+            }
+        }
+
+        stage('Archive Test Results') {
+            steps {
+                junit '**/build/outputs/androidTest-results/connected/*.xml'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Build und UI-Tests erfolgreich"
+        }
+        failure {
+            echo "❌ Build oder Tests fehlgeschlagen"
+        }
+        always {
+            archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
+            sh '''
+                if [ -f emulator_id.txt ]; then
+                    emulator_id=$(cat emulator_id.txt)
+                    echo "🛑 Stopping emulator $emulator_id"
+                    adb -s "$emulator_id" emu kill || true
+                fi
+            '''
+        }
+    }
+}
