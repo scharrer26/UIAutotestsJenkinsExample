@@ -5,6 +5,7 @@ pipeline {
         ANDROID_HOME = "/opt/android-sdk"
         PATH = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
         GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
+        HOME = "/var/jenkins_home"
     }
 
     stages {
@@ -25,7 +26,9 @@ pipeline {
                 sh '''
                     echo "🚀 Starting emulator with xvfb..."
 
-                    # Set correct permissions to avoid auth issues
+                    mkdir -p $HOME/.android
+                    touch $HOME/.android/adbkey
+                    touch $HOME/.android/adbkey.pub
                     chown -R jenkins:jenkins $HOME/.android || true
 
                     nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
@@ -68,6 +71,8 @@ pipeline {
                     emulator_id=$(cat emulator_id.txt)
                     echo "⚙️ Setting ANDROID_SERIAL=$emulator_id"
                     export ANDROID_SERIAL=$emulator_id
+
+                    echo "🧪 Running Espresso tests..."
                     ./gradlew connectedDebugAndroidTest
                 '''
             }
