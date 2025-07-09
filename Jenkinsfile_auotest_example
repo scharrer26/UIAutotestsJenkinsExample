@@ -23,31 +23,32 @@ pipeline {
         stage('Start Emulator') {
             steps {
                 sh '''
-                    echo "🧹 Killing any existing emulators..."
-                    adb devices | grep emulator | cut -f1 | while read line; do adb -s $line emu kill; done
-
                     echo "🚀 Starting emulator..."
-                    nohup emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off &
+                    nohup emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off > /dev/null 2>&1 &
 
-                    echo "⏳ Waiting for emulator to show up..."
+                    echo "⏳ Waiting for emulator to connect via ADB..."
                     adb wait-for-device
 
+                    echo "🔍 Looking for started emulator ID..."
                     emulator_id=""
                     until [ -n "$emulator_id" ]; do
                         sleep 2
-                        emulator_id=$(adb devices | grep emulator | cut -f1)
+                        emulator_id=$(adb devices | grep -w "device" | grep "emulator-" | cut -f1)
                     done
 
-                    echo "ℹ️ Found emulator with ID: $emulator_id"
+                    echo "ℹ️ Using emulator: $emulator_id"
 
+                    echo "$emulator_id" > emulator_id.txt
+
+                    echo "⏳ Waiting for boot to complete..."
                     boot_completed=""
                     while [ "$boot_completed" != "1" ]; do
                         sleep 5
                         boot_completed=$(adb -s "$emulator_id" shell getprop sys.boot_completed | tr -d '\\r')
-                        echo "⏳ Emulator booting..."
+                        echo "⏳ Still booting..."
                     done
 
-                    echo "✅ Emulator is fully booted and ready!"
+                    echo "✅ Emulator $emulator_id is fully booted and ready!"
                 '''
             }
         }
@@ -61,7 +62,7 @@ pipeline {
         stage('Run Instrumented UI Tests') {
             steps {
                 sh '''
-                    emulator_id=$(adb devices | grep emulator | cut -f1)
+                    emulator_id=$(cat emulator_id.txt)
                     ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.deviceId=$emulator_id
                 '''
             }
@@ -83,6 +84,13 @@ pipeline {
         }
         always {
             archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
+            sh '''
+                if [ -f emulator_id.txt ]; then
+                    emulator_id=$(cat emulator_id.txt)
+                    echo "🛑 Stopping emulator $emulator_id"
+                    adb -s "$emulator_id" emu kill || true
+                fi
+            '''
         }
     }
 }
