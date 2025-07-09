@@ -23,12 +23,12 @@ pipeline {
         stage('Start Emulator') {
             steps {
                 sh '''
-                    echo "🚀 Starting emulator..."
+                    echo "🚀 Starting emulator with xvfb..."
 
-                    runuser -u jenkins -- nohup $ANDROID_HOME/emulator/emulator \
-                        -avd jenkins_emulator \
+                    nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
+                        $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
                         -no-window -no-audio -no-snapshot -wipe-data \
-                        -gpu off -accel off -no-boot-anim > emulator.log 2>&1 &
+                        -gpu off -accel off -no-boot-anim -no-boot-anim -no-auth > emulator.log 2>&1 &
 
                     echo "🔍 Looking for started emulator ID..."
                     emulator_id=""
