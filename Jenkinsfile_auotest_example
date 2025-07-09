@@ -24,7 +24,7 @@ pipeline {
             steps {
                 sh '''
                     echo "🚀 Starting emulator..."
-                    nohup emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off > /dev/null 2>&1 &
+                    $ANDROID_HOME/emulator/emulator -avd jenkins_emulator -no-window -no-audio -no-snapshot -wipe-data -gpu off -accel off > emulator.log 2>&1 &
 
                     echo "⏳ Waiting for emulator to connect via ADB..."
                     adb wait-for-device
