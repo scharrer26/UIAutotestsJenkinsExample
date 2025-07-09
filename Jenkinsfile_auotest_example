@@ -28,12 +28,12 @@ pipeline {
                     echo "🚀 Starting emulator with xvfb..."
 
                     mkdir -p $HOME/.android
+                    rm -rf $HOME/.android/avd/jenkins_emulator.avd
                     rm -f $HOME/.android/adbkey*
                     touch $HOME/.android/adbkey
                     touch $HOME/.android/adbkey.pub
-                    chmod -R u+rw $HOME/.android
 
-                    runuser -u jenkins -- nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
+                    nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
                         $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
                         -no-audio -no-snapshot -wipe-data \
                         -gpu off -accel off -no-boot-anim -no-window > emulator.log 2>&1 &
@@ -174,7 +174,7 @@ pipeline {
                 if [ -f emulator_id.txt ]; then
                     emulator_id=$(cat emulator_id.txt)
                     echo "🛑 Stopping emulator $emulator_id"
-                    runuser -u jenkins -- adb -s "$emulator_id" emu kill || echo "⚠️ Failed to stop emulator"
+                    adb -s "$emulator_id" emu kill || echo "⚠️ Failed to stop emulator"
                 fi
             '''
         }
