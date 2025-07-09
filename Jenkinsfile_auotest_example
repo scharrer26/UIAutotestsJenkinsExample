@@ -2,21 +2,12 @@ pipeline {
   agent any
 
   environment {
-    ANDROID_HOME       = "/opt/android-sdk"
-    PATH               = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-
-    // Isolate build artifacts per build
-    BUILD_ROOT         = "/var/jenkins_home/builds/${BUILD_ID}"
-    GRADLE_USER_HOME   = "${BUILD_ROOT}/.gradle"
-    HOME               = "${BUILD_ROOT}/home"
-    ANDROID_AVD_HOME   = "${BUILD_ROOT}/.android/avd"
-    ADB_VENDOR_KEYS    = "${BUILD_ROOT}/.android/adbkey"
-
-    // Dynamically allocate emulator ports for parallelism
-    EMULATOR_PORT      = "${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
-    EMULATOR_SERIAL    = "emulator-${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
-    EMULATOR_NAME      = "jenkins_emulator"
-    EMULATOR_LOG       = "emulator_${BUILD_ID}.log"
+    ANDROID_HOME    = "/opt/android-sdk"
+    PATH            = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+    GRADLE_OPTS     = "-Dorg.gradle.jvmargs=-Xmx4g"
+    GRADLE_USER_HOME = "/var/jenkins_home/.gradle"
+    HOME            = "/var/jenkins_home"
+    ADB_VENDOR_KEYS = "/var/jenkins_home/.android/adbkey"
   }
 
   stages {
@@ -26,76 +17,52 @@ pipeline {
       }
     }
 
-    stage('Prepare SDK & local.properties') {
+    stage('Setup local.properties') {
       steps {
-        sh '''
-          mkdir -p "$ANDROID_AVD_HOME" "$GRADLE_USER_HOME" "$HOME/.android"
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-        '''
-      }
-    }
-
-    stage('Create Emulator') {
-      steps {
-        sh '''
-          echo "📦 Creating AVD if it does not exist..."
-
-          avd_path="$ANDROID_AVD_HOME/${EMULATOR_NAME}.avd"
-          avd_ini="$ANDROID_AVD_HOME/${EMULATOR_NAME}.ini"
-
-          if [ ! -d "$avd_path" ]; then
-            echo "no" | avdmanager create avd \
-              --name "$EMULATOR_NAME" \
-              --package "system-images;android-34;google_apis;x86_64" \
-              --device "pixel_4" \
-              --force
-            echo "✅ AVD created"
-          else
-            echo "✅ AVD already exists"
-          fi
-        '''
+        sh 'echo "sdk.dir=$ANDROID_HOME" > local.properties'
       }
     }
 
     stage('Start Emulator') {
       steps {
         sh '''
-          echo "🚀 Starting emulator with GPU passthrough..."
+          echo "🚀 Starting emulator with GPU acceleration..."
 
-          rm -f "$HOME/.android/adbkey"*
-          touch "$HOME/.android/adbkey" "$HOME/.android/adbkey.pub"
+          mkdir -p $HOME/.android
+          rm -f $HOME/.android/adbkey*
+          touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
+          # Start emulator in background with GPU passthrough (if host allows)
           start=$(date +%s)
 
-          nohup $ANDROID_HOME/emulator/emulator -avd $EMULATOR_NAME \
-            -port $EMULATOR_PORT \
-            -no-audio -no-snapshot -wipe-data \
-            -gpu host -no-boot-anim -no-window -accel on > $EMULATOR_LOG 2>&1 &
+          nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
+            -no-audio -no-snapshot -wipe-data -gpu host \
+            -no-boot-anim -no-window -accel on > emulator.log 2>&1 &
 
-          echo "🔍 Waiting for emulator to register via ADB..."
+          echo "🔍 Waiting for emulator to appear in adb..."
           for i in {1..30}; do
-            adb devices | grep "$EMULATOR_SERIAL" && break
+            adb devices | awk '/emulator-.*device$/ {print $1}' && break
             sleep 2
           done
 
-          echo "⏳ Waiting for system boot..."
+          echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
-            if adb -s $EMULATOR_SERIAL shell getprop sys.boot_completed | grep -q 1; then
+            if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
               end=$(date +%s)
-              echo "✅ Boot completed in $((end - start)) seconds"
+              echo "✅ Emulator booted in $((end - start)) seconds"
               break
             fi
             sleep 5
           done
 
-          echo "🔓 Unlocking emulator screen..."
-          adb -s $EMULATOR_SERIAL shell input keyevent 82
+          echo "🔓 Unlocking screen..."
+          adb -s emulator-5554 shell input keyevent 82
           sleep 5
 
-          echo "⚙️ Disabling animations for faster test execution..."
-          adb -s $EMULATOR_SERIAL shell settings put global window_animation_scale 0
-          adb -s $EMULATOR_SERIAL shell settings put global transition_animation_scale 0
-          adb -s $EMULATOR_SERIAL shell settings put global animator_duration_scale 0
+          # Disable animations for faster UI tests
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
         '''
       }
     }
@@ -106,41 +73,41 @@ pipeline {
       }
     }
 
-    stage('Run UI Tests') {
+    stage('Run Instrumented UI Tests') {
       steps {
         sh '''
-          export ANDROID_SERIAL=$EMULATOR_SERIAL
-          echo "🧪 Executing connected tests..."
+          export ANDROID_SERIAL=emulator-5554
+          echo "🧪 Running UI Tests..."
           ./gradlew connectedDebugAndroidTest
         '''
       }
     }
 
-    stage('Archive Results') {
+    stage('Archive Test Results') {
       steps {
-        sh 'echo "📁 Searching for test result XMLs..."; find . -name "*.xml" || true'
+        sh 'echo "📂 Listing test result files..."; find . -name "*.xml" || true'
         junit '**/build/outputs/**/connected/**/*.xml'
         archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
-        archiveArtifacts artifacts: "$EMULATOR_LOG", allowEmptyArchive: true
+        archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
       }
     }
   }
 
   post {
     always {
-      echo "🛑 Terminating emulator instance..."
+      echo "🛑 Stopping emulator..."
       sh '''
-        adb -s $EMULATOR_SERIAL emu kill || true
-        pkill -f "emulator.*$EMULATOR_NAME" || true
-        pkill -f "qemu-system" || true
+        adb -s emulator-5554 emu kill || true
+        pkill -f "emulator.*jenkins_emulator" || true
+        pkill -f "qemu-system-x86_64" || true
       '''
     }
     success {
-      echo "✅ Pipeline finished successfully"
+      echo "✅ Build and tests completed successfully"
     }
     failure {
-      echo "❌ Pipeline failed"
-      sh 'echo "📄 Emulator log:"; cat $EMULATOR_LOG || true'
+      echo "❌ Build or tests failed"
+      sh 'echo "📄 Dumping emulator log:"; cat emulator.log || true'
     }
   }
 }
