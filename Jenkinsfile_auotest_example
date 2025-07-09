@@ -12,7 +12,7 @@ pipeline {
     ANDROID_AVD_HOME   = "${BUILD_ROOT}/.android/avd"
     ADB_VENDOR_KEYS    = "${BUILD_ROOT}/.android/adbkey"
 
-    // Calculate a dynamic port based on build number to avoid conflicts
+    // Dynamically assigned emulator port to avoid conflicts
     EMULATOR_PORT      = "${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_SERIAL    = "emulator-${5560 + (BUILD_NUMBER.toInteger() % 40) * 2}"
     EMULATOR_NAME      = "jenkins_emulator"
@@ -29,7 +29,7 @@ pipeline {
     stage('Prepare SDK & local.properties') {
       steps {
         sh '''
-          mkdir -p "$ANDROID_AVD_HOME" "$GRADLE_USER_HOME" "$HOME"
+          mkdir -p "$ANDROID_AVD_HOME" "$GRADLE_USER_HOME" "$HOME/.android"
           echo "sdk.dir=$ANDROID_HOME" > local.properties
         '''
       }
