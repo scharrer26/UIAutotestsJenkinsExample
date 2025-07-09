@@ -2,11 +2,11 @@ pipeline {
     agent any
 
     environment {
-        ANDROID_HOME = "/opt/android-sdk"
-        PATH = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-        GRADLE_OPTS = "-Dorg.gradle.jvmargs=-Xmx4g"
-        HOME = "/var/jenkins_home"
-        ADB_VENDOR_KEYS = "/var/jenkins_home/.android/adbkey"
+        ANDROID_HOME   = "/opt/android-sdk"
+        PATH           = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+        GRADLE_OPTS    = "-Dorg.gradle.jvmargs=-Xmx4g"
+        HOME           = "/var/jenkins_home"
+        ADB_VENDOR_KEYS= "/var/jenkins_home/.android/adbkey"
     }
 
     stages {
@@ -28,29 +28,28 @@ pipeline {
                     echo "🚀 Starting emulator with xvfb..."
 
                     mkdir -p $HOME/.android
-                    rm -rf $HOME/.android/avd/jenkins_emulator.avd
                     rm -f $HOME/.android/adbkey*
-                    touch $HOME/.android/adbkey
-                    touch $HOME/.android/adbkey.pub
+                    touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
                     nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
-                        $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-                        -no-audio -no-snapshot -wipe-data \
-                        -gpu off -accel off -no-boot-anim -no-window > emulator.log 2>&1 &
+                      $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
+                      -no-audio -no-snapshot -wipe-data \
+                      -gpu off -accel off -no-boot-anim -no-window \
+                      > emulator.log 2>&1 &
 
                     echo "🔍 Looking for started emulator ID..."
                     emulator_id=""
                     tries=0
                     until [ -n "$emulator_id" ] || [ $tries -gt 30 ]; do
-                        sleep 2
-                        emulator_id=$(adb devices | grep -w "device" | grep "emulator-" | cut -f1)
-                        tries=$((tries + 1))
+                      sleep 2
+                      emulator_id=$(adb devices | awk '/emulator-.*device$/ {print $1}')
+                      tries=$((tries+1))
                     done
 
                     if [ -z "$emulator_id" ]; then
-                        echo "❌ Emulator did not start in time"
-                        cat emulator.log || true
-                        exit 1
+                      echo "❌ Emulator did not start in time"
+                      cat emulator.log || true
+                      exit 1
                     fi
 
                     echo "ℹ️ Using emulator: $emulator_id"
@@ -60,16 +59,16 @@ pipeline {
                     boot_completed=""
                     elapsed=0
                     while [ "$boot_completed" != "1" ] && [ $elapsed -lt 180 ]; do
-                        sleep 5
-                        elapsed=$((elapsed + 5))
-                        boot_completed=$(adb -s "$emulator_id" shell getprop sys.boot_completed | tr -d '\\r')
-                        echo "⏳ Still booting... ($elapsed s)"
+                      sleep 5
+                      elapsed=$((elapsed+5))
+                      boot_completed=$(adb -s "$emulator_id" shell getprop sys.boot_completed | tr -d '\\r')
+                      echo "⏳ Still booting... ($elapsed s)"
                     done
 
                     if [ "$boot_completed" != "1" ]; then
-                        echo "❌ Emulator did not finish booting in time"
-                        cat emulator.log || true
-                        exit 1
+                      echo "❌ Emulator did not finish booting in time"
+                      cat emulator.log || true
+                      exit 1
                     fi
 
                     echo "✅ Emulator booted."
@@ -78,25 +77,6 @@ pipeline {
                     adb -s "$emulator_id" shell settings put global window_animation_scale 0
                     adb -s "$emulator_id" shell settings put global transition_animation_scale 0
                     adb -s "$emulator_id" shell settings put global animator_duration_scale 0
-
-                    echo "🔍 Waiting for window focus before unlock..."
-                    focus_ready="false"
-                    tries=0
-                    while [ "$focus_ready" != "true" ] && [ $tries -lt 15 ]; do
-                        sleep 4
-                        if adb -s "$emulator_id" shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'Activity'; then
-                            focus_ready="true"
-                        else
-                            echo "⏳ Waiting for pre-unlock focus... (try $((tries+1)))"
-                        fi
-                        tries=$((tries + 1))
-                    done
-
-                    if [ "$focus_ready" != "true" ]; then
-                        echo "❌ Emulator never gained focus before unlock"
-                        cat emulator.log || true
-                        exit 1
-                    fi
 
                     echo "🔓 Unlocking screen..."
                     adb -s "$emulator_id" shell input keyevent 82
@@ -119,32 +99,28 @@ pipeline {
                     emulator_id=$(cat emulator_id.txt)
                     export ANDROID_SERIAL=$emulator_id
 
-                    echo "🔍 Verifying emulator window has focus after unlock..."
-                    focused="false"
-                    tries=0
-                    while [ "$focused" != "true" ] && [ $tries -lt 20 ]; do
-                        sleep 4
-                        if adb -s "$emulator_id" shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | grep -q 'Activity'; then
-                            focused="true"
-                        else
-                            echo "⏳ Waiting for post-unlock focus... (try $((tries+1)))"
-                        fi
-                        tries=$((tries + 1))
+                    echo "🔍 Verifying emulator window has focus..."
+                    focused=false; tries=0
+                    until $focused || [ $tries -ge 20 ]; do
+                      sleep 4
+                      if adb -s "$emulator_id" shell dumpsys window windows \
+                        | grep -E 'mCurrentFocus|mFocusedApp' \
+                        | grep -q 'Activity'; then
+                        focused=true
+                      else
+                        echo "⏳ Waiting for focus... (try $((tries+1)))"
+                        tries=$((tries+1))
+                      fi
                     done
 
-                    if [ "$focused" != "true" ]; then
-                        echo "❌ Emulator never got focus after unlock"
-                        cat emulator.log || true
-                        exit 1
-                    fi
+                    $focused || { echo "❌ No focus"; cat emulator.log || true; exit 1; }
+                    echo "✅ Emulator focused."
 
-                    echo "✅ Emulator window is focused."
-
-                    echo "🎯 Simulating user activity to ensure focus..."
-                    adb -s "$emulator_id" shell input keyevent 3      # HOME
-                    adb -s "$emulator_id" shell input keyevent 187    # APP_SWITCH
-                    adb -s "$emulator_id" shell input keyevent 61     # TAB
-                    adb -s "$emulator_id" shell input keyevent 66     # ENTER
+                    echo "🎯 Simulating user activity for sure focus..."
+                    adb -s "$emulator_id" shell input keyevent 3
+                    adb -s "$emulator_id" shell input keyevent 187
+                    adb -s "$emulator_id" shell input keyevent 61
+                    adb -s "$emulator_id" shell input keyevent 66
                     sleep 5
 
                     echo "🧪 Running Espresso tests..."
@@ -161,22 +137,25 @@ pipeline {
     }
 
     post {
-        success {
-            echo "✅ Build und UI-Tests erfolgreich"
-        }
-        failure {
-            echo "❌ Build oder Tests fehlgeschlagen"
-        }
+        success { echo "✅ Build und UI-Tests erfolgreich" }
+        failure { echo "❌ Build oder Tests fehlgeschlagen" }
         always {
             archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
             archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
-            sh '''
-                if [ -f emulator_id.txt ]; then
-                    emulator_id=$(cat emulator_id.txt)
-                    echo "🛑 Stopping emulator $emulator_id"
-                    adb -s "$emulator_id" emu kill || echo "⚠️ Failed to stop emulator"
-                fi
-            '''
+
+            // Emulator per PID killen
+            script {
+                def pid = sh(
+                  script: "pgrep -f 'emulator.*jenkins_emulator'",
+                  returnStdout: true
+                ).trim()
+                if (pid) {
+                  echo "🛑 Killing emulator process $pid"
+                  sh "kill $pid"
+                } else {
+                  echo "⚠️ Emulator process not found"
+                }
+            }
         }
     }
 }
