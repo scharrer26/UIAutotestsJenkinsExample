@@ -42,7 +42,7 @@ pipeline {
     stage('Start Emulator') {
       steps {
         sh '''
-          echo "🚀 Starting emulator with GPU acceleration..."
+          echo "🚀 Starting emulator with CPU-based (software) rendering..."
 
           mkdir -p $HOME/.android
           rm -f $HOME/.android/adbkey*
@@ -51,12 +51,12 @@ pipeline {
           start=$(date +%s)
 
           nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu host \
-            -no-boot-anim -no-window -accel on > "$WORKSPACE/emulator.log" 2>&1 &
+            -no-audio -no-snapshot -wipe-data -gpu off \
+            -no-boot-anim -no-window -accel off > "$WORKSPACE/emulator.log" 2>&1 &
 
           echo "🔍 Waiting for emulator to appear in adb..."
           for i in {1..30}; do
-            if adb devices | awk '/emulator-.*device\$/' {print $1}; then
+            if adb devices | awk '/emulator-.*device$/ {print $1}'; then
               break
             fi
             sleep 2
