@@ -84,28 +84,7 @@ pipeline {
 
         // Use recursive pattern to catch all possible test result files
         junit '**/build/outputs/**/connected/**/*.xml'
-
-        // Archive generated APKs and emulator log
-        archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
-        archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
       }
-    }
-  }
-
-  post {
-    always {
-      echo "🛑 Stopping emulator if still running"
-      sh '''
-        adb -s emulator-5554 emu kill || true
-        pkill -f "emulator.*jenkins_emulator" || true
-        pkill -f "qemu-system-x86_64" || true
-      '''
-    }
-    success {
-      echo "✅ Build and UI tests successful"
-    }
-    failure {
-      echo "❌ Build or tests failed"
     }
   }
 }
