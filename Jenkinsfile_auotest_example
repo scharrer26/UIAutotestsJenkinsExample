@@ -24,63 +24,83 @@ pipeline {
       }
     }
 
-    stage('Ensure AVD Exists') {
+    stage('Ensure AVDs Exist') {
       steps {
-        sh '''
-          echo "📦 Ensuring AVD exists..."
-          if ! $ANDROID_HOME/emulator/emulator -list-avds | grep -q jenkins_emulator; then
-            echo "🛠 Creating AVD..."
-            echo "no" | avdmanager create avd -n jenkins_emulator \
-              -k "system-images;android-33;google_apis;x86_64" \
-              --device "pixel" --force
-          else
-            echo "✅ AVD already exists"
-          fi
-        '''
+        script {
+          def avds = ['jenkins_emulator_34', 'jenkins_emulator_33', 'jenkins_emulator_32', 'jenkins_emulator_31', 'jenkins_emulator_30']
+          avds.each { avd ->
+            sh """
+              echo "📦 Ensuring AVD $avd exists..."
+              if ! $ANDROID_HOME/emulator/emulator -list-avds | grep -q $avd; then
+                echo "🛠 Creating AVD $avd..."
+                echo "no" | avdmanager create avd -n $avd \
+                  -k "system-images;android-${avd.split('_')[2]};google_apis;x86_64" \
+                  --device "pixel" --force
+              else
+                echo "✅ AVD $avd already exists"
+              fi
+            """
+          }
+        }
       }
     }
 
-    stage('Start Emulator') {
+    stage('Start Emulators') {
       steps {
-        sh '''
-          echo "🚀 Starting emulator with GPU acceleration..."
+        script {
+          def emulators = ['jenkins_emulator_34', 'jenkins_emulator_33', 'jenkins_emulator_32', 'jenkins_emulator_31', 'jenkins_emulator_30']
+          emulators.each { avd ->
+            sh """
+              echo "🚀 Starting emulator $avd..."
+              mkdir -p $HOME/.android
+              rm -f $HOME/.android/adbkey*
+              touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          mkdir -p $HOME/.android
-          rm -f $HOME/.android/adbkey*
-          touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
+              start=$(date +%s)
 
-          start=$(date +%s)
+              nohup $ANDROID_HOME/emulator/emulator -avd $avd \
+                -no-audio -no-snapshot -wipe-data -gpu host \
+                -no-boot-anim -no-window -accel on > "$WORKSPACE/${avd}_emulator.log" 2>&1 &
+            """
+          }
+        }
+      }
+    }
 
-          nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu host \
-            -no-boot-anim -no-window -accel on > "$WORKSPACE/emulator.log" 2>&1 &
+    stage('Wait for Emulators to Boot') {
+      steps {
+        script {
+          def emulators = ['jenkins_emulator_34', 'jenkins_emulator_33', 'jenkins_emulator_32', 'jenkins_emulator_31', 'jenkins_emulator_30']
+          emulators.each { avd ->
+            sh """
+              echo "🔍 Waiting for emulator $avd to appear in adb..."
+              for i in {1..30}; do
+                if adb devices | awk '/emulator-.*device$/ {print $1}'; then
+                  break
+                fi
+                sleep 2
+              done
 
-          echo "🔍 Waiting for emulator to appear in adb..."
-          for i in {1..30}; do
-            if adb devices | awk '/emulator-.*device$/ {print $1}'; then
-              break
-            fi
-            sleep 2
-          done
+              echo "⏳ Waiting for boot completion of $avd (max 180s)..."
+              for i in {1..36}; do
+                if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
+                  end=$(date +%s)
+                  echo "✅ Emulator $avd booted in $((end - start)) seconds"
+                  break
+                fi
+                sleep 5
+              done
 
-          echo "⏳ Waiting for boot completion (max 180s)..."
-          for i in {1..36}; do
-            if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
-              end=$(date +%s)
-              echo "✅ Emulator booted in $((end - start)) seconds"
-              break
-            fi
-            sleep 5
-          done
+              echo "🔓 Unlocking screen on emulator $avd..."
+              adb -s emulator-5554 shell input keyevent 82
+              sleep 5
 
-          echo "🔓 Unlocking screen..."
-          adb -s emulator-5554 shell input keyevent 82
-          sleep 5
-
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
-        '''
+              adb shell settings put global window_animation_scale 0
+              adb shell settings put global transition_animation_scale 0
+              adb shell settings put global animator_duration_scale 0
+            """
+          }
+        }
       }
     }
 
@@ -92,11 +112,16 @@ pipeline {
 
     stage('Run Instrumented UI Tests') {
       steps {
-        sh '''
-          export ANDROID_SERIAL=emulator-5554
-          echo "🧪 Running UI Tests..."
-          ./gradlew connectedDebugAndroidTest
-        '''
+        script {
+          def devices = ['emulator-5554', 'emulator-5556', 'emulator-5558', 'emulator-5560', 'emulator-5562']
+          devices.each { device ->
+            sh """
+              export ANDROID_SERIAL=$device
+              echo "🧪 Running UI Tests on $device..."
+              ./gradlew connectedDebugAndroidTest
+            """
+          }
+        }
       }
     }
 
@@ -105,16 +130,20 @@ pipeline {
         sh 'echo "📂 Listing test result files..."; find . -name "*.xml" || true'
         junit '**/build/outputs/**/connected/**/*.xml'
         archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
-        archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
+        archiveArtifacts artifacts: '**/emulator*.log', allowEmptyArchive: true
       }
     }
   }
 
   post {
     always {
-      echo "🛑 Stopping emulator..."
+      echo "🛑 Stopping emulators..."
       sh '''
         adb -s emulator-5554 emu kill || true
+        adb -s emulator-5556 emu kill || true
+        adb -s emulator-5558 emu kill || true
+        adb -s emulator-5560 emu kill || true
+        adb -s emulator-5562 emu kill || true
         pkill -f "emulator.*jenkins_emulator" || true
         pkill -f "qemu-system-x86_64" || true
       '''
@@ -124,7 +153,7 @@ pipeline {
     }
     failure {
       echo "❌ Build or tests failed"
-      sh 'echo "📄 Dumping emulator log:"; cat "$WORKSPACE/emulator.log" || true'
+      sh 'echo "📄 Dumping emulator log:"; cat "$WORKSPACE/emulator*.log" || true'
     }
   }
 }
