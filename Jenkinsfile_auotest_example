@@ -45,7 +45,7 @@ pipeline {
 
           echo "🔍 Waiting for emulator to become ONLINE..."
           for i in {1..30}; do
-            line=$(adb devices | grep '^emulator-5554')
+            line=$(adb devices | grep '^emulator-5554' || true)
             state=${line##* }
             if [ "$state" = "device" ]; then
               echo "✅ Emulator is ONLINE"
@@ -90,7 +90,7 @@ pipeline {
 
           echo "🔍 Verifying focus..."
           for i in {1..30}; do
-            focus_info=$(adb -s emulator-5554 shell dumpsys window windows | grep -E "mCurrentFocus|has-window-focus=true")
+            focus_info=$(adb -s emulator-5554 shell dumpsys window windows | grep -E "mCurrentFocus|has-window-focus=true" || true)
             if [ -n "$focus_info" ]; then
               echo "✅ Focus established: $focus_info"
               # Fokus-Log speichern
