@@ -125,7 +125,7 @@ pipeline {
   post {
     always {
       echo "🛑 Stopping emulator"
-      # Emulator bleibt im Hintergrund, kein forciertes Killen mehr
+      // Emulator bleibt im Hintergrund, kein forciertes Killen mehr
     }
     success {
       echo "✅ Build and UI tests successful"
