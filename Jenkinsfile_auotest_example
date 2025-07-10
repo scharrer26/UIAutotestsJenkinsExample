@@ -29,53 +29,60 @@ pipeline {
 
           echo "🚀 Launching emulator under Xvfb..."
           mkdir -p $HOME/.android
-          rm -f $HOME/.android/adbkey* 
+          rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # 1) Start headless emulator
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
-            $ANDROID_HOME/emulator/emulator \
-              -avd jenkins_emulator \
+            $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
               -no-audio -no-snapshot -wipe-data \
               -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
             > emulator.log 2>&1 &
 
-          # give it a moment to spin up
+          # kurz pausieren, damit adb das Device sieht
           sleep 10
 
-          echo "🔍 Waiting for emulator to appear in adb devices..."
+          echo "🔍 Waiting for emulator to show up..."
           for i in {1..30}; do
             adb devices | grep -q '^emulator-.*device$' && break
             sleep 2
           done
 
-          echo "⏳ Waiting for boot completion (max 180s)..."
+          echo "⏳ Waiting for boot (max 180s)..."
           for i in {1..36}; do
-            booted=$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null)
-            if [ "$booted" = "1" ]; then
+            if [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null)" = "1" ]; then
               echo "✅ Emulator booted"
               break
             fi
             sleep 5
           done
 
-          echo "🚫 Disabling animations..."
-
           echo "🔓 Wake & unlock..."
-          adb -s emulator-5554 shell input keyevent 224        # WAKEUP
-          adb -s emulator-5554 shell wm dismiss-keyguard     # dismiss keyguard
-          adb -s emulator-5554 shell input keyevent 82       # MENU/HOME
+          adb -s emulator-5554 shell input keyevent 224      # WAKEUP
+          adb -s emulator-5554 shell wm dismiss-keyguard    # dismiss keyguard
+          adb -s emulator-5554 shell input keyevent 82      # MENU/HOME
           sleep 2
 
           echo "🔍 Verifying focus…"
-          adb -s emulator-5554 shell dumpsys window windows | grep -E "mCurrentFocus|has-window-focus=true" || echo "⚠️ no focus info"
+          adb -s emulator-5554 shell dumpsys window windows \
+            | grep -E "mCurrentFocus|has-window-focus=true" \
+            || echo "⚠️ no focus info"
         '''
       }
     }
 
-    stage('Build APK') {
+    stage('Build & Pre-Install APKs') {
       steps {
-        sh './gradlew assembleDebug'
+        sh '''
+          echo "📦 Building APKs…"
+          ./gradlew assembleDebug
+
+          echo "📥 Pre-installing App + Test APK on emulator…"
+          adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+          adb -s emulator-5554 install -r \
+            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || true
+          sleep 5
+        '''
       }
     }
 
@@ -83,7 +90,7 @@ pipeline {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
-          echo "🧪 Running Espresso/UI Tests..."
+          echo "🧪 Running Espresso/UI Tests…"
           ./gradlew connectedDebugAndroidTest
         '''
       }
