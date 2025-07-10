@@ -30,20 +30,19 @@ pipeline {
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # Start emulator in headless mode using Xvfb
+          # Start emulator headless under Xvfb but allow a window for focus
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu off -accel off -no-boot-anim -no-window \
+            -no-audio -no-snapshot -wipe-data \
+            -gpu swiftshader_indirect -accel off -no-boot-anim \
             > emulator.log 2>&1 &
 
-          # Wait for emulator to appear in `adb devices`
           echo "🔍 Waiting for emulator to appear..."
           for i in {1..30}; do
             adb devices | awk '/emulator-.*device$/ {print $1}' && break
             sleep 2
           done
 
-          # Wait for system boot to complete (max 180 seconds)
           echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
             if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
@@ -53,10 +52,14 @@ pipeline {
             sleep 5
           done
 
-          # Unlock the screen
+          echo "🚫 Disabling animations for Espresso..."
+          adb -s emulator-5554 shell settings put global window_animation_scale 0
+          adb -s emulator-5554 shell settings put global transition_animation_scale 0
+          adb -s emulator-5554 shell settings put global animator_duration_scale 0
+
           echo "🔓 Unlocking screen..."
           adb -s emulator-5554 shell input keyevent 82
-          sleep 10
+          sleep 5
         '''
       }
     }
@@ -79,12 +82,26 @@ pipeline {
 
     stage('Archive Test Results') {
       steps {
-        // Print all found .xml files to help debugging test result collection
         sh 'echo "📂 Searching for test XML files..."; find . -name "*.xml" || true'
-
-        // Use recursive pattern to catch all possible test result files
         junit '**/build/outputs/**/connected/**/*.xml'
       }
+    }
+  }
+
+  post {
+    always {
+      echo "🛑 Stopping emulator"
+      sh '''
+        adb -s emulator-5554 emu kill || true
+        pkill -f "emulator.*jenkins_emulator" || true
+        pkill -f "qemu-system-x86_64" || true
+      '''
+    }
+    success {
+      echo "✅ Build and UI tests successful"
+    }
+    failure {
+      echo "❌ Build or tests failed"
     }
   }
 }
