@@ -11,7 +11,6 @@ pipeline {
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout scm
@@ -56,7 +55,7 @@ pipeline {
               rm -f $HOME/.android/adbkey*
               touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-              start=$(date +%s)
+              start=\$(date +%s)
 
               nohup $ANDROID_HOME/emulator/emulator -avd $avd \
                 -no-audio -no-snapshot -wipe-data -gpu host \
@@ -75,7 +74,7 @@ pipeline {
             sh """
               echo "🔍 Waiting for emulator $avd to appear in adb..."
               for i in {1..30}; do
-                if adb devices | awk '/emulator-.*device$/ {print $1}'; then
+                if adb devices | awk '/emulator-.*device$/ {print \$1}'; then
                   break
                 fi
                 sleep 2
@@ -84,8 +83,8 @@ pipeline {
               echo "⏳ Waiting for boot completion of $avd (max 180s)..."
               for i in {1..36}; do
                 if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
-                  end=$(date +%s)
-                  echo "✅ Emulator $avd booted in $((end - start)) seconds"
+                  end=\$(date +%s)
+                  echo "✅ Emulator $avd booted in \$((end - start)) seconds"
                   break
                 fi
                 sleep 5
