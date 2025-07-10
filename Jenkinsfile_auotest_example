@@ -38,16 +38,23 @@ pipeline {
               -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
             > emulator.log 2>&1 &
 
-          # kurz pausieren, damit adb das Device sieht
+          # kurz pausieren, damit adb das Device überhaupt sieht
           sleep 10
 
-          echo "🔍 Waiting for emulator to show up..."
+          echo "🔍 Waiting for emulator to become ONLINE..."
           for i in {1..30}; do
-            adb devices | grep -q '^emulator-.*device$' && break
-            sleep 2
+            line=$(adb devices | grep '^emulator-5554')
+            state=${line##* }  # everything after last space
+            if [ "$state" = "device" ]; then
+              echo "✅ Emulator is ONLINE"
+              break
+            else
+              echo "… current state is '$state' – retrying"
+              sleep 2
+            fi
           done
 
-          echo "⏳ Waiting for boot (max 180s)..."
+          echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
             if [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null)" = "1" ]; then
               echo "✅ Emulator booted"
@@ -58,8 +65,8 @@ pipeline {
 
           echo "🔓 Wake & unlock..."
           adb -s emulator-5554 shell input keyevent 224      # WAKEUP
-          adb -s emulator-5554 shell wm dismiss-keyguard    # dismiss keyguard
-          adb -s emulator-5554 shell input keyevent 82      # MENU/HOME
+          adb -s emulator-5554 shell wm dismiss-keyguard     # dismiss keyguard
+          adb -s emulator-5554 shell input keyevent 82       # MENU/HOME
           sleep 2
 
           echo "🔍 Verifying focus…"
