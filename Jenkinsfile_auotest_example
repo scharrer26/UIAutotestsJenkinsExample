@@ -32,9 +32,11 @@ pipeline {
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
+          # Start emulator with increased partition size to avoid freeStorage NPE
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
               -no-audio -no-snapshot -wipe-data \
+              -partition-size 512 \
               -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
             > emulator.log 2>&1 &
 
@@ -44,7 +46,7 @@ pipeline {
           echo "🔍 Waiting for emulator to become ONLINE..."
           for i in {1..30}; do
             line=$(adb devices | grep '^emulator-5554')
-            state=${line##* }  # everything after last space
+            state=${line##* }
             if [ "$state" = "device" ]; then
               echo "✅ Emulator is ONLINE"
               break
@@ -64,15 +66,24 @@ pipeline {
           done
 
           echo "🔓 Wake & unlock..."
-          adb -s emulator-5554 shell input keyevent 224      # WAKEUP
-          adb -s emulator-5554 shell wm dismiss-keyguard     # dismiss keyguard
-          adb -s emulator-5554 shell input keyevent 82       # MENU/HOME
+          adb -s emulator-5554 shell input keyevent 224
+          adb -s emulator-5554 shell wm dismiss-keyguard
+          adb -s emulator-5554 shell input keyevent 82
           sleep 2
 
-          echo "🔍 Verifying focus…"
-          adb -s emulator-5554 shell dumpsys window windows \
-            | grep -E "mCurrentFocus|has-window-focus=true" \
-            || echo "⚠️ no focus info"
+          echo "🔍 Verifying focus..."
+          for i in {1..30}; do
+            has_focus=$(adb -s emulator-5554 shell dumpsys window windows \
+              | grep -E "mCurrentFocus|has-window-focus=true" )
+            if [ -n "$has_focus" ]; then
+              echo "✅ Focus established"
+              break
+            else
+              echo "… no focus yet, retrying ($i/30)"
+              sleep 2
+            fi
+          done
+          sleep 10
         '''
       }
     }
@@ -80,10 +91,10 @@ pipeline {
     stage('Build & Pre-Install APKs') {
       steps {
         sh '''
-          echo "📦 Building APKs…"
+          echo "📦 Building APKs..."
           ./gradlew assembleDebug
 
-          echo "📥 Pre-installing App + Test APK on emulator…"
+          echo "📥 Pre-installing App + Test APK on emulator..."
           adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
           adb -s emulator-5554 install -r \
             app/build/outputs/apk/debug/app-debug.apk \
@@ -97,7 +108,7 @@ pipeline {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
-          echo "🧪 Running Espresso/UI Tests…"
+          echo "🧪 Running Espresso/UI Tests..."
           ./gradlew connectedDebugAndroidTest
         '''
       }
@@ -105,7 +116,7 @@ pipeline {
 
     stage('Archive Test Results') {
       steps {
-        sh 'echo "📂 Searching for test XML files…"; find . -name "*.xml" || true'
+        sh 'echo "📂 Searching for test XML files..."; find . -name "*.xml" || true'
         junit '**/build/outputs/**/connected/**/*.xml'
       }
     }
@@ -114,11 +125,7 @@ pipeline {
   post {
     always {
       echo "🛑 Stopping emulator"
-      sh '''
-        adb -s emulator-5554 emu kill || true
-        pkill -f "emulator.*jenkins_emulator" || true
-        pkill -f "qemu-system-x86_64" || true
-      '''
+      # Emulator bleibt im Hintergrund, kein forciertes Killen mehr
     }
     success {
       echo "✅ Build and UI tests successful"
