@@ -27,22 +27,24 @@ pipeline {
         sh '''
           echo "🚀 Starting emulator in Xvfb..."
           mkdir -p $HOME/.android
-          rm -f $HOME/.android/adbkey*
+          rm -f $HOME/.android/adbkey* 
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # Start emulator headless under Xvfb but allow a window for focus
+          # 1) Emulator headless unter Xvfb starten
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
             -no-audio -no-snapshot -wipe-data \
             -gpu swiftshader_indirect -accel off -no-boot-anim \
             > emulator.log 2>&1 &
 
+          # 2) Auf Android Device warten
           echo "🔍 Waiting for emulator to appear..."
           for i in {1..30}; do
             adb devices | awk '/emulator-.*device$/ {print $1}' && break
             sleep 2
           done
 
+          # 3) Auf Boot warten
           echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
             if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
@@ -52,14 +54,23 @@ pipeline {
             sleep 5
           done
 
+          # 4) Espresso-freundlich: Animationen ausschalten
           echo "🚫 Disabling animations for Espresso..."
           adb -s emulator-5554 shell settings put global window_animation_scale 0
           adb -s emulator-5554 shell settings put global transition_animation_scale 0
           adb -s emulator-5554 shell settings put global animator_duration_scale 0
 
+          # 5) Wecken & entsperren
           echo "🔓 Unlocking screen..."
-          adb -s emulator-5554 shell input keyevent 82
-          sleep 5
+          adb -s emulator-5554 shell input keyevent 224       # KEYCODE_WAKEUP
+          adb -s emulator-5554 shell wm dismiss-keyguard     # Keyguard entfernen
+          adb -s emulator-5554 shell input keyevent 82        # KEYCODE_MENU/HOME
+          sleep 2
+
+          # 6) Verifizieren, dass unsere Activity Fokus hat
+          echo "🔍 Verifying focus…"
+          adb -s emulator-5554 shell dumpsys window windows \
+            | grep -E "mCurrentFocus|has-window-focus=true"
         '''
       }
     }
