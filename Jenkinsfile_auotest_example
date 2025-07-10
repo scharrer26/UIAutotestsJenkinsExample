@@ -21,7 +21,7 @@ pipeline {
     }
 
     stage('Start Emulator') {
-      steps {
+      steps {fResumed Activity
         sh '''
           set +e
           echo "🛑 Restarting ADB server..."
@@ -119,8 +119,11 @@ pipeline {
         sh '''
           export ANDROID_SERIAL=emulator-5554
           echo "🚀 Launching app to foreground before tests"
-          adb -s emulator-5554 shell monkey -p com.example.uiautotestsjenkinsexample \
-            -c android.intent.category.LAUNCHER 1 || true
+          # Start MainActivity explicitly
+          adb -s emulator-5554 shell am start -W -n com.example.uiautotestsjenkinsexample/.MainActivity || true
+          # Prüfen, welche Activity gerade im Vordergrund ist
+          echo "⏱ Resumed Activity: $(adb -s emulator-5554 shell dumpsys activity activities | grep mResumedActivity || echo 'none')"
+          # Kurze Pause, damit die Activity voll lädt
           sleep 5
 
           echo "🧪 Running Espresso/UI Tests..."
