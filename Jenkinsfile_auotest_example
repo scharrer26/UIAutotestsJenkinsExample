@@ -124,7 +124,7 @@ pipeline {
           sleep 5
 
           echo "🧪 Running Espresso/UI Tests..."
-          ./gradlew connectedDebugAndroidTest
+          ./gradlew connectedDebugAndroidTest --rerun-tasks
         '''
       }
     }
