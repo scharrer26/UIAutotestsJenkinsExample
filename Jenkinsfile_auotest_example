@@ -15,33 +15,35 @@ pipeline {
     }
 
     stage('Setup local.properties') {
-      steps { sh 'echo "sdk.dir=$ANDROID_HOME" > local.properties' }
+      steps {
+        sh 'echo "sdk.dir=$ANDROID_HOME" > local.properties'
+      }
     }
 
     stage('Start Emulator') {
       steps {
         sh '''
-          echo "🛑 Restarting ADB server..."
+          echo "🛑 Restarting ADB server…"
           adb kill-server && adb start-server
 
-          echo "🚀 Starting emulator under Xvfb..."
+          echo "🚀 Starting emulator under Xvfb…"
           mkdir -p $HOME/.android
-          rm -f $HOME/.android/adbkey* 
+          rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # 1) Launch headless emulator
+          # 1) Launch headless emulator in background
           nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu swiftshader_indirect \
-            -accel off -no-boot-anim \
+            -no-audio -no-snapshot -wipe-data \
+            -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
             > emulator.log 2>&1 &
 
           # 2) Wait for ADB to see it
-          echo "🔍 Waiting for emulator to register..."
+          echo "🔍 Waiting for emulator to register…"
           adb wait-for-device
 
-          # 3) Wait for boot
-          echo "⏳ Waiting for boot completion (max 180s)..."
+          # 3) Wait for full boot (max ~180s)
+          echo "⏳ Waiting for boot completion (max 180s)…"
           for i in {1..36}; do
             if adb shell getprop sys.boot_completed | grep -q 1; then
               echo "✅ Emulator booted"
@@ -50,20 +52,20 @@ pipeline {
             sleep 5
           done
 
-          # 4) Disable animations
-          echo "🚫 Disabling animations for Espresso..."
+          # 4) Disable animations for Espresso
+          echo "🚫 Disabling animations for Espresso…"
           adb shell cmd settings put global window_animation_scale 0
           adb shell cmd settings put global transition_animation_scale 0
           adb shell cmd settings put global animator_duration_scale 0
 
           # 5) Wake & unlock
-          echo "🔓 Unlocking screen..."
-          adb shell input keyevent 224        # WAKEUP
+          echo "🔓 Unlocking screen…"
+          adb shell input keyevent 224       # WAKEUP
           adb shell wm dismiss-keyguard      # dismiss keyguard
           adb shell input keyevent 82        # MENU/HOME
           sleep 2
 
-          # 6) Verify focus
+          # 6) Verify our app can take focus
           echo "🔍 Verifying focus…"
           adb shell dumpsys window windows | grep -E "mCurrentFocus|has-window-focus=true"
         '''
@@ -71,14 +73,16 @@ pipeline {
     }
 
     stage('Build APK') {
-      steps { sh './gradlew assembleDebug' }
+      steps {
+        sh './gradlew assembleDebug'
+      }
     }
 
     stage('Run Instrumented UI Tests') {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
-          echo "🧪 Running Espresso/UI Tests..."
+          echo "🧪 Running Espresso/UI Tests…"
           ./gradlew connectedDebugAndroidTest
         '''
       }
@@ -101,7 +105,11 @@ pipeline {
         pkill -f "qemu-system-x86_64" || true
       '''
     }
-    success { echo "✅ Build and UI tests successful" }
-    failure { echo "❌ Build or tests failed" }
+    success {
+      echo "✅ Build and UI tests successful"
+    }
+    failure {
+      echo "❌ Build or tests failed"
+    }
   }
 }
