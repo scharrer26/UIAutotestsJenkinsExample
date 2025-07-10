@@ -69,11 +69,6 @@ pipeline {
           # Eingabe via 'cmd input' nutzen, wenn 'input' Service fehlt
           adb -s emulator-5554 shell cmd input keyevent 224      # WAKEUP
           adb -s emulator-5554 shell cmd input keyevent 82       # MENU/HOME
-          # Sicherstellen, dass Keyguard weg ist
-          adb -s emulator-5554 shell cmd device_policy dismiss-keyguard || adb -s emulator-5554 shell wm dismiss-keyguard
-          sleep 2
-          adb -s emulator-5554 shell "/system/bin/wm dismiss-keyguard"
-          sleep 2
 
           echo "🔍 Verifying focus..."
           for i in {1..30}; do
