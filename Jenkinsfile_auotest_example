@@ -37,7 +37,7 @@ pipeline {
             $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
               -no-audio -no-snapshot -wipe-data \
               -partition-size 512 \
-              -gpu swiftshader_indirect -accel off -no-boot-anim -no-window \
+              -gpu swiftshader_indirect -accel off -no-boot-anim \
             > emulator.log 2>&1 &
 
           sleep 10
