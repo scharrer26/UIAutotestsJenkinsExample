@@ -66,9 +66,27 @@ pipeline {
           done
 
           echo "🔓 Wake & unlock..."
-          # Eingabe via 'cmd input' nutzen, wenn 'input' Service fehlt
-          adb -s emulator-5554 shell cmd input keyevent 224      # WAKEUP
-          adb -s emulator-5554 shell cmd input keyevent 82       # MENU/HOME
+          # Log initial keyguard status
+          echo "⏱ Keyguard locked before: $(adb -s emulator-5554 shell dumpsys window policy | grep isKeyguardLocked || echo 'unknown')"
+
+          echo "📲 Sending WAKEUP keyevent"
+          adb -s emulator-5554 shell input keyevent 224
+          echo "  exitcode: $?"
+
+          echo "📲 Sending HOME keyevent"
+          adb -s emulator-5554 shell input keyevent 82
+          echo "  exitcode: $?"
+
+          echo "🔐 Dismissing keyguard via input keyevents only"
+          # device_policy removed due to missing service
+          adb -s emulator-5554 shell input keyevent 82
+          echo "  exitcode: $?"
+
+          echo "⏱ Keyguard locked after: $(adb -s emulator-5554 shell dumpsys window policy | grep isKeyguardLocked || echo 'unknown')"
+
+          sleep 2
+          adb -s emulator-5554 shell "/system/bin/wm dismiss-keyguard"
+          sleep 2
 
           echo "🔍 Verifying focus..."
           for i in {1..30}; do
