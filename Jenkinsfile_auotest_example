@@ -2,15 +2,16 @@ pipeline {
   agent any
 
   environment {
-    ANDROID_HOME    = "/opt/android-sdk"
-    PATH            = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-    GRADLE_OPTS     = "-Dorg.gradle.jvmargs=-Xmx4g"
+    ANDROID_HOME     = "/opt/android-sdk"
+    PATH             = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+    GRADLE_OPTS      = "-Dorg.gradle.jvmargs=-Xmx4g"
     GRADLE_USER_HOME = "/var/jenkins_home/.gradle"
-    HOME            = "/var/jenkins_home"
-    ADB_VENDOR_KEYS = "/var/jenkins_home/.android/adbkey"
+    HOME             = "/var/jenkins_home"
+    ADB_VENDOR_KEYS  = "$HOME/.android/adbkey"
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout scm
@@ -23,6 +24,22 @@ pipeline {
       }
     }
 
+    stage('Ensure AVD Exists') {
+      steps {
+        sh '''
+          echo "📦 Ensuring AVD exists..."
+          if ! $ANDROID_HOME/emulator/emulator -list-avds | grep -q jenkins_emulator; then
+            echo "🛠 Creating AVD..."
+            echo "no" | avdmanager create avd -n jenkins_emulator \
+              -k "system-images;android-33;google_apis;x86_64" \
+              --device "pixel" --force
+          else
+            echo "✅ AVD already exists"
+          fi
+        '''
+      }
+    }
+
     stage('Start Emulator') {
       steps {
         sh '''
@@ -32,16 +49,17 @@ pipeline {
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          # Start emulator in background with GPU passthrough (if host allows)
           start=$(date +%s)
 
           nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
             -no-audio -no-snapshot -wipe-data -gpu host \
-            -no-boot-anim -no-window -accel on > emulator.log 2>&1 &
+            -no-boot-anim -no-window -accel on > "$WORKSPACE/emulator.log" 2>&1 &
 
           echo "🔍 Waiting for emulator to appear in adb..."
           for i in {1..30}; do
-            adb devices | awk '/emulator-.*device$/ {print $1}' && break
+            if adb devices | awk '/emulator-.*device$/ {print $1}'; then
+              break
+            fi
             sleep 2
           done
 
@@ -59,7 +77,6 @@ pipeline {
           adb -s emulator-5554 shell input keyevent 82
           sleep 5
 
-          # Disable animations for faster UI tests
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
@@ -107,7 +124,7 @@ pipeline {
     }
     failure {
       echo "❌ Build or tests failed"
-      sh 'echo "📄 Dumping emulator log:"; cat emulator.log || true'
+      sh 'echo "📄 Dumping emulator log:"; cat "$WORKSPACE/emulator.log" || true'
     }
   }
 }
