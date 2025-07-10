@@ -2,12 +2,11 @@ pipeline {
   agent any
 
   environment {
-    ANDROID_HOME     = "/opt/android-sdk"
-    PATH             = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-    GRADLE_OPTS      = "-Dorg.gradle.jvmargs=-Xmx4g"
-    GRADLE_USER_HOME = "/var/jenkins_home/.gradle"
-    HOME             = "/var/jenkins_home"
-    ADB_VENDOR_KEYS  = "$HOME/.android/adbkey"
+    ANDROID_HOME    = "/opt/android-sdk"
+    PATH            = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+    GRADLE_OPTS     = "-Dorg.gradle.jvmargs=-Xmx4g"
+    HOME            = "/var/jenkins_home"
+    ADB_VENDOR_KEYS = "/var/jenkins_home/.android/adbkey"
   }
 
   stages {
@@ -23,62 +22,41 @@ pipeline {
       }
     }
 
-    stage('Ensure AVD Exists') {
-      steps {
-        sh '''
-          echo "📦 Ensuring AVD exists..."
-          if ! $ANDROID_HOME/emulator/emulator -list-avds | grep -q jenkins_emulator; then
-            echo "🛠 Creating AVD..."
-            echo "no" | avdmanager create avd -n jenkins_emulator \
-              -k "system-images;android-33;google_apis;x86_64" \
-              --device "pixel" --force
-          else
-            echo "✅ AVD already exists"
-          fi
-        '''
-      }
-    }
-
     stage('Start Emulator') {
       steps {
         sh '''
-          echo "🚀 Starting emulator with CPU-based (software) rendering..."
-
+          echo "🚀 Starting emulator in Xvfb..."
           mkdir -p $HOME/.android
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          start=$(date +%s)
+          # Start emulator in headless mode using Xvfb
+          nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
+            $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
+            -no-audio -no-snapshot -wipe-data -gpu off -accel off -no-boot-anim -no-window \
+            > emulator.log 2>&1 &
 
-          nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-            -no-audio -no-snapshot -wipe-data -gpu off \
-            -no-boot-anim -no-window -accel off > "$WORKSPACE/emulator.log" 2>&1 &
-
-          echo "🔍 Waiting for emulator to appear in adb..."
+          # Wait for emulator to appear in `adb devices`
+          echo "🔍 Waiting for emulator to appear..."
           for i in {1..30}; do
-            if adb devices | awk '/emulator-.*device$/ {print $1}'; then
-              break
-            fi
+            adb devices | awk '/emulator-.*device$/ {print $1}' && break
             sleep 2
           done
 
+          # Wait for system boot to complete (max 180 seconds)
           echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
             if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
-              end=$(date +%s)
-              echo "✅ Emulator booted in $((end - start)) seconds"
+              echo "✅ Emulator booted"
               break
             fi
             sleep 5
           done
 
+          # Unlock the screen
           echo "🔓 Unlocking screen..."
           adb -s emulator-5554 shell input keyevent 82
-          sleep 5
-
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
+          sleep 10
         '''
       }
     }
@@ -93,7 +71,7 @@ pipeline {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
-          echo "🧪 Running UI Tests..."
+          echo "🧪 Running Espresso/UI Tests..."
           ./gradlew connectedDebugAndroidTest
         '''
       }
@@ -101,8 +79,13 @@ pipeline {
 
     stage('Archive Test Results') {
       steps {
-        sh 'echo "📂 Listing test result files..."; find . -name "*.xml" || true'
+        // Print all found .xml files to help debugging test result collection
+        sh 'echo "📂 Searching for test XML files..."; find . -name "*.xml" || true'
+
+        // Use recursive pattern to catch all possible test result files
         junit '**/build/outputs/**/connected/**/*.xml'
+
+        // Archive generated APKs and emulator log
         archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
         archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
       }
@@ -111,7 +94,7 @@ pipeline {
 
   post {
     always {
-      echo "🛑 Stopping emulator..."
+      echo "🛑 Stopping emulator if still running"
       sh '''
         adb -s emulator-5554 emu kill || true
         pkill -f "emulator.*jenkins_emulator" || true
@@ -119,11 +102,10 @@ pipeline {
       '''
     }
     success {
-      echo "✅ Build and tests completed successfully"
+      echo "✅ Build and UI tests successful"
     }
     failure {
       echo "❌ Build or tests failed"
-      sh 'echo "📄 Dumping emulator log:"; cat "$WORKSPACE/emulator.log" || true'
     }
   }
 }
