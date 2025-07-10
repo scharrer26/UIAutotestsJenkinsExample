@@ -21,7 +21,7 @@ pipeline {
     }
 
     stage('Start Emulator') {
-      steps {fResumed Activity
+      steps {
         sh '''
           set +e
           echo "🛑 Restarting ADB server..."
