@@ -5,13 +5,16 @@ pipeline {
     ANDROID_HOME    = "/opt/android-sdk"
     PATH            = "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
     GRADLE_OPTS     = "-Dorg.gradle.jvmargs=-Xmx4g"
+    GRADLE_USER_HOME = "/var/jenkins_home/.gradle"
     HOME            = "/var/jenkins_home"
-    ADB_VENDOR_KEYS = "$HOME/.android/adbkey"
+    ADB_VENDOR_KEYS = "/var/jenkins_home/.android/adbkey"
   }
 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
 
     stage('Setup local.properties') {
@@ -23,94 +26,50 @@ pipeline {
     stage('Start Emulator') {
       steps {
         sh '''
-          set +e
-          echo "🛑 Restarting ADB server..."
-          adb kill-server || true
-          adb start-server || true
+          echo "🚀 Starting emulator with GPU acceleration..."
 
-          echo "🚀 Launching emulator under Xvfb..."
           mkdir -p $HOME/.android
           rm -f $HOME/.android/adbkey*
           touch $HOME/.android/adbkey $HOME/.android/adbkey.pub
 
-          nohup xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
-            $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
-              -no-audio -no-snapshot -wipe-data \
-              -partition-size 512 \
-              -gpu swiftshader_indirect -accel off -no-boot-anim \
-            > emulator.log 2>&1 &
+          # Start emulator in background with GPU passthrough (if host allows)
+          start=$(date +%s)
 
-          sleep 10
-          set -e
+          nohup $ANDROID_HOME/emulator/emulator -avd jenkins_emulator \
+            -no-audio -no-snapshot -wipe-data -gpu host \
+            -no-boot-anim -no-window -accel on > emulator.log 2>&1 &
 
-          echo "🔍 Waiting for emulator to become ONLINE..."
-          set +e
+          echo "🔍 Waiting for emulator to appear in adb..."
           for i in {1..30}; do
-            line=$(adb devices | grep '^emulator-5554' || true)
-            state=${line##* }
-            if [ "$state" = "device" ]; then
-              echo "✅ Emulator is ONLINE"
-              break
-            else
-              echo "… current state is '$state' – retrying"
-              sleep 2
-            fi
+            adb devices | awk '/emulator-.*device$/ {print $1}' && break
+            sleep 2
           done
 
           echo "⏳ Waiting for boot completion (max 180s)..."
           for i in {1..36}; do
-            boot=$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null || echo "0")
-            if [ "$boot" = "1" ]; then
-              echo "✅ Emulator booted"
+            if adb -s emulator-5554 shell getprop sys.boot_completed | grep -q 1; then
+              end=$(date +%s)
+              echo "✅ Emulator booted in $((end - start)) seconds"
               break
             fi
             sleep 5
           done
 
-          echo "🔓 Wake & unlock..."
-          echo "⏱ Keyguard locked before: $(adb -s emulator-5554 shell dumpsys window policy | grep isKeyguardLocked || echo 'unknown')"
+          echo "🔓 Unlocking screen..."
+          adb -s emulator-5554 shell input keyevent 82
+          sleep 5
 
-          echo "📲 Sending WAKEUP keyevent"
-          adb -s emulator-5554 shell input keyevent 224 || true
-
-          echo "📲 Sending HOME keyevent"
-          adb -s emulator-5554 shell input keyevent 82 || true
-
-          echo "🔐 Dismissing keyguard via input keyevents only"
-          adb -s emulator-5554 shell input keyevent 82 || true
-          adb -s emulator-5554 shell wm dismiss-keyguard || true
-          echo "⏱ Keyguard locked after: $(adb -s emulator-5554 shell dumpsys window policy | grep isKeyguardLocked || echo 'unknown')"
-
-          echo "🔍 Verifying focus..."
-          for i in {1..30}; do
-            focus_info=$(adb -s emulator-5554 shell dumpsys window windows | grep -E "mCurrentFocus|has-window-focus=true" || true)
-            if [ -n "$focus_info" ]; then
-              echo "✅ Focus established: $focus_info"
-              adb -s emulator-5554 shell dumpsys window windows > emulator_focus.log
-              cat emulator_focus.log
-              break
-            else
-              echo "… no focus yet, retrying ($i/30)"
-              sleep 2
-            fi
-          done
-          sleep 10
+          # Disable animations for faster UI tests
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
         '''
       }
     }
 
-    stage('Build & Pre-Install APKs') {
+    stage('Build APK') {
       steps {
-        sh '''
-          echo "📦 Building APKs..."
-          ./gradlew assembleDebug
-
-          echo "📥 Pre-installing App + Test APK on emulator..."
-          adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk || true
-          adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk \
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || true
-          sleep 5
-        '''
+        sh './gradlew assembleDebug'
       }
     }
 
@@ -118,38 +77,29 @@ pipeline {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
-          echo "🚀 Launching app to foreground before tests"
-          # Start MainActivity explicitly
-          adb -s emulator-5554 shell am start -W -n com.example.uiautotestsjenkinsexample/.MainActivity || true
-          # Prüfen, welche Activity gerade im Vordergrund ist
-          echo "⏱ Resumed Activity: $(adb -s emulator-5554 shell dumpsys activity activities | grep mResumedActivity || echo 'none')"
-          # Kurze Pause, damit die Activity voll lädt
-          sleep 5
-
-          echo "🧪 Running Espresso/UI Tests..."
-          ./gradlew connectedDebugAndroidTest --rerun-tasks
+          echo "🧪 Running UI Tests..."
+          ./gradlew connectedDebugAndroidTest
         '''
       }
     }
 
     stage('Archive Test Results') {
       steps {
-        sh 'echo "📂 Searching for test XML files..."; find . -name "*.xml" || true'
+        sh 'echo "📂 Listing test result files..."; find . -name "*.xml" || true'
         junit '**/build/outputs/**/connected/**/*.xml'
+        archiveArtifacts artifacts: '**/build/outputs/**/*.apk', fingerprint: true
+        archiveArtifacts artifacts: 'emulator.log', allowEmptyArchive: true
       }
     }
   }
 
   post {
-    always {
-      echo "🛑 Stopping emulator"
-      // Emulator bleibt im Hintergrund, kein forciertes Killen mehr
-    }
     success {
-      echo "✅ Build and UI tests successful"
+      echo "✅ Build and tests completed successfully"
     }
     failure {
       echo "❌ Build or tests failed"
+      sh 'echo "📄 Dumping emulator log:"; cat emulator.log || true'
     }
   }
 }
