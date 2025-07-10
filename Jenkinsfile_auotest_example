@@ -127,6 +127,17 @@ pipeline {
       steps {
         sh '''
           export ANDROID_SERIAL=emulator-5554
+          echo "🚀 Launching app to foreground before tests"
+          # Launch the main activity to ensure window focus
+          adb -s emulator-5554 shell monkey -p com.example.uiautotestsjenkinsexample -c android.intent.category.LAUNCHER 1
+          # Kurze Pause, damit die Activity Zeit zum Starten hat
+          sleep 5
+          echo "🧪 Running Espresso/UI Tests..."
+          ./gradlew connectedDebugAndroidTest
+        '''s
+      }
+    }
+          export ANDROID_SERIAL=emulator-5554
           echo "🧪 Running Espresso/UI Tests..."
           ./gradlew connectedDebugAndroidTest
         '''
